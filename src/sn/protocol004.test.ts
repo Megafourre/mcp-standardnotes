@@ -105,6 +105,41 @@ describe("protocol004 primitives", () => {
     expect(dec.locked).toBe(false);
   });
 
+  it("round-trips the Advanced Checklist editor through encryptNote → decryptNote", async () => {
+    await sodiumReady();
+    const itemsKeyBytes = await generateItemsKeyRaw();
+    const itemsKeyUuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const noteUuid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+    const encrypted = await encryptNote(
+      {
+        uuid: noteUuid,
+        title: "My checklist",
+        text: "{}",
+        noteType: "task",
+        editor: "advanced-checklist",
+        trashed: false,
+      },
+      { uuid: itemsKeyUuid, itemsKey: itemsKeyBytes },
+    );
+
+    const fakeRaw = {
+      uuid: noteUuid,
+      content_type: "Note",
+      content: encrypted.content,
+      enc_item_key: encrypted.enc_item_key,
+      items_key_id: encrypted.items_key_id,
+      created_at: "",
+      updated_at: "",
+    };
+
+    const keyMap = new Map<string, Uint8Array>([[itemsKeyUuid, itemsKeyBytes]]);
+    const dec = await decryptNote(fakeRaw, keyMap);
+
+    expect(dec.noteType).toBe("task");
+    expect(dec.editor).toBe("advanced-checklist");
+  });
+
   it("surfaces the SN top-level `protected` and appData `locked` flags through decryptNote", async () => {
     await sodiumReady();
     // We don't have a protected-note creation path in this project, so we

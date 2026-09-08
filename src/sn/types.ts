@@ -12,6 +12,12 @@ export const NOTE_TYPES = [
 
 export type NoteType = (typeof NOTE_TYPES)[number];
 
+export const NOTE_EDITORS = [
+  "advanced-checklist",
+] as const;
+
+export type NoteEditor = (typeof NOTE_EDITORS)[number];
+
 export interface NoteSummary {
   uuid: string;
   title: string;
@@ -26,6 +32,7 @@ export interface NoteSummary {
   // Content stays readable — the user just said "don't modify".
   locked: boolean;
   noteType: NoteType;
+  editor?: NoteEditor;
 }
 
 export interface Note {
@@ -39,6 +46,7 @@ export interface Note {
   locked: boolean;
   tags: string[];
   noteType: NoteType;
+  editor?: NoteEditor;
 }
 
 export interface TagSummary {

@@ -43,9 +43,11 @@ src/
     protocol004.ts     # SN 004 framing: root key, items_key wrap, payload enc/dec
     http.ts            # fetch wrapper: /v1/login-params, /v1/login, /v1/items/sync
     session.ts         # Session persistence via keytar
+    advancedChecklist.ts # Advanced Checklist (com.sncommunity.advanced-checklist) pure data model
     types.ts           # Note / NoteSummary / KeyParams types
   tools/notes.ts       # MCP handlers + zod schemas
   tools/tags.ts        # Tags + sync handlers + zod schemas
+  tools/checklist.ts   # Advanced Checklist handlers + zod schemas
   security/
     redact.ts, logger.ts
 .env.example
@@ -63,6 +65,9 @@ src/
 | `notes_delete` | Delete (trash by default, purge if `permanent=true`) |
 | `tags_list` / `tags_get` / `tags_create` / `tags_update` / `tags_delete` | Tag CRUD |
 | `tags_attach` / `tags_detach` | Link/unlink a tag to a note |
+| `notes_checklist_create` | Create an Advanced Checklist note (opens in the Advanced Checklist editor) |
+| `notes_checklist_add_group` / `notes_checklist_rename_group` / `notes_checklist_delete_group` | Task-group CRUD (groups addressed by unique name) |
+| `notes_checklist_add_task` / `notes_checklist_update_task` / `notes_checklist_set_task_completed` / `notes_checklist_delete_task` | Task CRUD (tasks addressed by `taskId` within a group) |
 | `sync` | Force a synchronization |
 
 ## Security requirements (non-negotiable)
@@ -92,7 +97,8 @@ First boot triggers an interactive login (stdin prompt outside MCP, via `npm run
 ## Gotchas
 
 - **Sync is async-heavy**: always `await client.sync()` after a CRUD operation before considering it complete.
-- **Sync conflicts**: the server can produce conflicts; `notes_update` should fetch the fresh note before writing. Current code throws on conflict.
+- **Sync conflicts**: the server can produce conflicts; `notes_update` forces a full sync before writing. On a `sync_conflict` `submitNoteUpdate` refreshes the raw item and re-pushes **the same payload once** — it does not re-merge, so a losing concurrent edit is overwritten (last-write-wins at the note level). The checklist tools inherit this: granular task ops are *not* CRDT-merged against a concurrent edit from the SN app.
+- **Advanced Checklist format**: `src/sn/advancedChecklist.ts` mirrors the plugin (`github.com/standardnotes/advanced-checklist`, `tasks-slice.ts`). Note body is `JSON.stringify({ schemaVersion, groups }, null, 2)`; an empty body counts as an empty checklist; group names are unique; new tasks and just-toggled tasks go to the front of their group.
 - **Legacy protocol 003**: refuse accounts not migrated to 004 with a clear error — no workaround.
 - **Rate limiting**: the SN server rate-limits auth (~5/min). Don't retry in a loop on 429.
 - **MCP stdio**: any `console.log` breaks the protocol. Use `console.error` for logs, or a logger that only writes to stderr.

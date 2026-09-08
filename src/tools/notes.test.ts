@@ -47,6 +47,13 @@ function fakeClient(): SnClient {
     ]),
     updateNote: vi.fn(async () => undefined),
     deleteNote: vi.fn(async () => undefined),
+    addChecklistGroup: vi.fn(async () => undefined),
+    renameChecklistGroup: vi.fn(async () => undefined),
+    deleteChecklistGroup: vi.fn(async () => undefined),
+    addChecklistTask: vi.fn(async () => "task-id"),
+    updateChecklistTask: vi.fn(async () => undefined),
+    toggleChecklistTask: vi.fn(async () => undefined),
+    deleteChecklistTask: vi.fn(async () => undefined),
     stats: vi.fn(async () => ({
       notes: { total: 0, active: 0, trashed: 0 },
       tags: 0,
@@ -56,6 +63,9 @@ function fakeClient(): SnClient {
       largest: null,
       oldest: null,
       newest: null,
+      syncedAt: "2026-04-15T00:00:00Z",
+      cacheAgeMs: 0,
+      decryptFailures: { notes: 0, tags: 0 },
     })),
     listTags: vi.fn(async () => []),
     getTag: vi.fn(async () => null),
@@ -148,6 +158,55 @@ describe("tool input validation", () => {
       title: "t",
       text: "body",
       tags: [tagUuid],
+    });
+  });
+
+  it("notes_create accepts and forwards the Advanced Checklist editor", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_create({
+      title: "Shopping",
+      text: "{}",
+      editor: "advanced-checklist",
+    });
+    expect(c.createNote).toHaveBeenCalledWith({
+      title: "Shopping",
+      text: "{}",
+      editor: "advanced-checklist",
+    });
+  });
+
+  it("notes_create_many forwards the Advanced Checklist editor", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_create_many({
+      notes: [
+        {
+          title: "Shopping",
+          text: "{}",
+          editor: "advanced-checklist",
+        },
+      ],
+    });
+    expect(c.createNotesBatch).toHaveBeenCalledWith([
+      {
+        title: "Shopping",
+        text: "{}",
+        editor: "advanced-checklist",
+      },
+    ]);
+  });
+
+  it("notes_update accepts editor as the only change", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_update({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      editor: "advanced-checklist",
+    });
+    expect(c.updateNote).toHaveBeenCalledWith({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      editor: "advanced-checklist",
     });
   });
 

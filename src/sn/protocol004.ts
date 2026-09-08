@@ -31,7 +31,7 @@ import {
   xchachaDecrypt,
   xchachaEncrypt,
 } from "./crypto.js";
-import type { NoteType } from "./types.js";
+import type { NoteEditor, NoteType } from "./types.js";
 
 const SN_APP_DOMAIN = "org.standardnotes.sn";
 
@@ -39,6 +39,10 @@ const EDITOR_IDENTIFIERS: Partial<Record<NoteType, string>> = {
   markdown: "org.standardnotes.advanced-markdown-editor",
   super: "com.standardnotes.super-editor",
   code: "org.standardnotes.code-editor",
+};
+
+const NOTE_EDITOR_IDENTIFIERS: Record<string, string> = {
+  "advanced-checklist": "com.sncommunity.advanced-checklist",
 };
 
 export interface KeyParams004 {
@@ -268,6 +272,7 @@ export interface DecryptedNote {
   // content stays readable, only writes are forbidden.
   locked: boolean;
   noteType: NoteType;
+  editor?: NoteEditor;
   updated_at_timestamp: number;
   created_at_timestamp: number;
 }
@@ -302,6 +307,7 @@ export async function decryptNote(
     protected?: boolean;
     appData?: Record<string, Record<string, unknown> | undefined>;
     noteType?: string;
+    editorIdentifier?: string;
   }>(contentJson, "note", item.uuid);
   // SN stores the edit-lock under the appData domain "org.standardnotes.sn".
   // Anything else (legacy keys, future extension points) we deliberately
@@ -311,6 +317,10 @@ export async function decryptNote(
     typeof snAppData === "object" &&
     snAppData !== null &&
     (snAppData as { locked?: unknown }).locked === true;
+  const editor: NoteEditor | undefined =
+    content.editorIdentifier === "com.sncommunity.advanced-checklist"
+      ? "advanced-checklist"
+      : undefined;
   return {
     uuid: item.uuid,
     title: content.title ?? "",
@@ -319,6 +329,7 @@ export async function decryptNote(
     protected: content.protected === true,
     locked,
     noteType: (content.noteType as NoteType | undefined) ?? "plain-text",
+    editor,
     createdAt: item.created_at ?? "",
     updatedAt: item.updated_at ?? "",
     created_at_timestamp: item.created_at_timestamp ?? 0,
@@ -339,6 +350,7 @@ export async function encryptNote(
     text: string;
     trashed?: boolean;
     noteType?: NoteType;
+    editor?: NoteEditor;
   },
   itemsKey: { uuid: string; itemsKey: Uint8Array },
 ): Promise<EncryptedNotePayload> {
@@ -355,7 +367,9 @@ export async function encryptNote(
   // `rich-text` / `task` / `spreadsheet` / `authentication` we omit it
   // intentionally — `noteType` is sufficient and a wrong identifier would
   // mask the type.
-  const editorIdentifier = EDITOR_IDENTIFIERS[resolvedType];
+  const editorIdentifier = note.editor
+    ? NOTE_EDITOR_IDENTIFIERS[note.editor]
+    : EDITOR_IDENTIFIERS[resolvedType];
   const previewPlain =
     resolvedType === "plain-text" || resolvedType === "markdown"
       ? note.text.slice(0, 160)

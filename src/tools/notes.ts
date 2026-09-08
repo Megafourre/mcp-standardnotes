@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { SnClient } from "../sn/client.js";
-import { NOTE_TYPES, type Note, type NoteSummary } from "../sn/types.js";
+import { NOTE_EDITORS, NOTE_TYPES, type Note, type NoteSummary } from "../sn/types.js";
 
 const MAX_TEXT_BYTES = 10 * 1024 * 1024;
 
 export const uuidSchema = z.string().uuid();
 
 export const noteTypeSchema = z.enum(NOTE_TYPES);
+export const noteEditorSchema = z.enum(NOTE_EDITORS);
 
 export const listInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
@@ -46,6 +47,7 @@ export const createInput = z.object({
       message: "text exceeds 10MB",
     }),
   noteType: noteTypeSchema.optional(),
+  editor: noteEditorSchema.optional(),
   tags: tagsArraySchema.optional(),
 });
 
@@ -59,6 +61,7 @@ export const updateInput = z
     title: z.string().max(500).optional(),
     text: z.string().max(MAX_TEXT_BYTES).optional(),
     noteType: noteTypeSchema.optional(),
+    editor: noteEditorSchema.optional(),
     tags: tagsArraySchema.optional(),
   })
   .refine(
@@ -66,9 +69,10 @@ export const updateInput = z
       v.title !== undefined ||
       v.text !== undefined ||
       v.noteType !== undefined ||
+      v.editor !== undefined ||
       v.tags !== undefined,
     {
-      message: "provide at least one of title, text, noteType, or tags",
+      message: "provide at least one of title, text, noteType, editor, or tags",
     },
   );
 

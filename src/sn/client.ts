@@ -27,6 +27,7 @@ import {
 } from "./tagHierarchy.js";
 import type {
   Note,
+  NoteEditor,
   NoteSummary,
   NoteType,
   Tag,
@@ -53,6 +54,7 @@ export interface SnClient {
     title: string;
     text: string;
     noteType?: NoteType;
+    editor?: NoteEditor;
     tags?: string[];
   }): Promise<string>;
   createNotesBatch(
@@ -60,6 +62,7 @@ export interface SnClient {
       title: string;
       text: string;
       noteType?: NoteType;
+      editor?: NoteEditor;
       tags?: string[];
     }>,
   ): Promise<Array<{ uuid: string; title: string }>>;
@@ -68,6 +71,7 @@ export interface SnClient {
     title?: string;
     text?: string;
     noteType?: NoteType;
+    editor?: NoteEditor;
     tags?: string[];
   }): Promise<void>;
   deleteNote(uuid: string, permanent: boolean): Promise<void>;
@@ -427,6 +431,7 @@ function toSummary(n: DecryptedNote): NoteSummary {
     protected: n.protected,
     locked: n.locked,
     noteType: n.noteType,
+    editor: n.editor,
   };
 }
 
@@ -458,6 +463,7 @@ function toFullNote(
     locked: n.locked,
     tags: tagsForNote(n.uuid, tagsCache),
     noteType: n.noteType,
+    editor: n.editor,
   };
 }
 
@@ -514,6 +520,7 @@ function buildClient(state: ClientState): SnClient {
       text: string;
       trashed: boolean;
       noteType: NoteType;
+      editor?: NoteEditor;
     },
     attempt: number,
   ): Promise<http.RawItem> => {
@@ -782,9 +789,10 @@ function buildClient(state: ClientState): SnClient {
       return n ? toFullNote(n, state.tagsCache) : null;
     },
 
-    async createNote({ title, text, noteType, tags }) {
+    async createNote({ title, text, noteType, editor, tags }) {
       const uuid = crypto.randomUUID();
-      const resolvedType: NoteType = noteType ?? "markdown";
+      const resolvedType: NoteType =
+        noteType ?? (editor === "advanced-checklist" ? "task" : "markdown");
       const resolvedText =
         resolvedType === "super" ? normalizeSuperText(text) : text;
       const encrypted = await encryptNote(
@@ -794,6 +802,7 @@ function buildClient(state: ClientState): SnClient {
           text: resolvedText,
           trashed: false,
           noteType: resolvedType,
+          editor,
         },
         { uuid: defaultItemsKey().uuid, itemsKey: defaultItemsKey().itemsKey },
       );
@@ -830,6 +839,7 @@ function buildClient(state: ClientState): SnClient {
         protected: false,
         locked: false,
         noteType: resolvedType,
+        editor,
         createdAt: saved.created_at ?? nowIso,
         updatedAt: saved.updated_at ?? nowIso,
         created_at_timestamp: saved.created_at_timestamp ?? 0,
@@ -851,10 +861,13 @@ function buildClient(state: ClientState): SnClient {
         title: string;
         text: string;
         noteType: NoteType;
+        editor?: NoteEditor;
         tags: string[];
       };
       const prepared: Prepared[] = inputs.map((input) => {
-        const resolvedType: NoteType = input.noteType ?? "markdown";
+        const resolvedType: NoteType =
+          input.noteType ??
+          (input.editor === "advanced-checklist" ? "task" : "markdown");
         const resolvedText =
           resolvedType === "super"
             ? normalizeSuperText(input.text)
@@ -864,6 +877,7 @@ function buildClient(state: ClientState): SnClient {
           title: input.title,
           text: resolvedText,
           noteType: resolvedType,
+          editor: input.editor,
           tags: input.tags ?? [],
         };
       });
@@ -876,6 +890,7 @@ function buildClient(state: ClientState): SnClient {
               text: p.text,
               trashed: false,
               noteType: p.noteType,
+              editor: p.editor,
             },
             {
               uuid: defaultItemsKey().uuid,
@@ -913,6 +928,7 @@ function buildClient(state: ClientState): SnClient {
           protected: false,
           locked: false,
           noteType: p.noteType,
+          editor: p.editor,
           createdAt: saved.created_at ?? nowIso,
           updatedAt: saved.updated_at ?? nowIso,
           created_at_timestamp: saved.created_at_timestamp ?? 0,
@@ -932,7 +948,7 @@ function buildClient(state: ClientState): SnClient {
       return prepared.map((p) => ({ uuid: p.uuid, title: p.title }));
     },
 
-    async updateNote({ uuid, title, text, noteType, tags }) {
+    async updateNote({ uuid, title, text, noteType, editor, tags }) {
       // Sync inconditionnel avant mutation : sinon on peut écraser une
       // révision plus récente produite par une autre instance du serveur
       // (cf. intakes/mcp-standardnotes-cache-staleness.md).
@@ -942,9 +958,16 @@ function buildClient(state: ClientState): SnClient {
       const raw = state.encryptedItemsRaw.get(uuid);
       if (!raw) throw new Error(`Note ${uuid} has no encrypted record`);
       const contentChanged =
-        title !== undefined || text !== undefined || noteType !== undefined;
+        title !== undefined ||
+        text !== undefined ||
+        noteType !== undefined ||
+        editor !== undefined;
       if (contentChanged) {
-        const nextType: NoteType = noteType ?? existing.noteType;
+        const nextType: NoteType =
+          noteType ??
+          (editor === "advanced-checklist" ? "task" : existing.noteType);
+        const nextEditor: NoteEditor | undefined =
+          editor !== undefined ? editor : existing.editor;
         const nextTextRaw = text ?? existing.text;
         const nextText =
           nextType === "super" && text !== undefined
@@ -956,6 +979,7 @@ function buildClient(state: ClientState): SnClient {
           text: nextText,
           trashed: existing.trashed,
           noteType: nextType,
+          editor: nextEditor,
         };
         const saved = await submitNoteUpdate(uuid, merged, 0);
         state.notesCache.set(uuid, {
@@ -1002,6 +1026,7 @@ function buildClient(state: ClientState): SnClient {
             text: merged.text,
             trashed: true,
             noteType: merged.noteType,
+            editor: merged.editor,
           },
           {
             uuid: defaultItemsKey().uuid,

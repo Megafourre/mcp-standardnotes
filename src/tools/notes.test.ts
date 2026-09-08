@@ -151,6 +151,55 @@ describe("tool input validation", () => {
     });
   });
 
+  it("notes_create accepts and forwards the Advanced Checklist editor", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_create({
+      title: "Shopping",
+      text: "{}",
+      editor: "advanced-checklist",
+    });
+    expect(c.createNote).toHaveBeenCalledWith({
+      title: "Shopping",
+      text: "{}",
+      editor: "advanced-checklist",
+    });
+  });
+
+  it("notes_create_many forwards the Advanced Checklist editor", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_create_many({
+      notes: [
+        {
+          title: "Shopping",
+          text: "{}",
+          editor: "advanced-checklist",
+        },
+      ],
+    });
+    expect(c.createNotesBatch).toHaveBeenCalledWith([
+      {
+        title: "Shopping",
+        text: "{}",
+        editor: "advanced-checklist",
+      },
+    ]);
+  });
+
+  it("notes_update accepts editor as the only change", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_update({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      editor: "advanced-checklist",
+    });
+    expect(c.updateNote).toHaveBeenCalledWith({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      editor: "advanced-checklist",
+    });
+  });
+
   it("notes_create rejects malformed tag uuid", async () => {
     const h = registerNoteHandlers(fakeClient());
     await expect(

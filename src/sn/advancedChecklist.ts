@@ -138,7 +138,7 @@ export function addTask(
     ...checklist,
     groups: checklist.groups.map((item, index) =>
       index === groupIndex
-        ? { ...item, tasks: [...item.tasks, task] }
+        ? { ...item, tasks: [task, ...item.tasks] }
         : item,
     ),
   };

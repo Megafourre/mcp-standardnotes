@@ -35,6 +35,18 @@ import type {
   VaultStats,
 } from "./types.js";
 import { fromHex, toHex } from "./crypto.js";
+import {
+  addGroup,
+  addTask,
+  deleteGroup,
+  deleteTask,
+  parseChecklist,
+  renameGroup,
+  serializeChecklist,
+  toggleTask,
+  updateTask,
+} from "./advancedChecklist.js";
+import type { AdvancedChecklist } from "./advancedChecklist.js";
 
 export interface SnClient {
   listNotes(opts: {
@@ -74,6 +86,49 @@ export interface SnClient {
     editor?: NoteEditor;
     tags?: string[];
   }): Promise<void>;
+
+  addChecklistGroup(input: {
+    uuid: string;
+    name: string;
+  }): Promise<void>;
+
+  renameChecklistGroup(input: {
+    uuid: string;
+    groupName: string;
+    newName: string;
+  }): Promise<void>;
+
+  deleteChecklistGroup(input: {
+    uuid: string;
+    groupName: string;
+  }): Promise<void>;
+
+  addChecklistTask(input: {
+    uuid: string;
+    groupName: string;
+    description: string;
+  }): Promise<string>;
+
+  updateChecklistTask(input: {
+    uuid: string;
+    groupName: string;
+    taskId: string;
+    description: string;
+  }): Promise<void>;
+
+  toggleChecklistTask(input: {
+    uuid: string;
+    groupName: string;
+    taskId: string;
+    completed: boolean;
+  }): Promise<void>;
+
+  deleteChecklistTask(input: {
+    uuid: string;
+    groupName: string;
+    taskId: string;
+  }): Promise<void>;
+
   deleteNote(uuid: string, permanent: boolean): Promise<void>;
   listTags(): Promise<TagSummary[]>;
   getTag(uuid: string): Promise<Tag | null>;
@@ -680,6 +735,74 @@ function buildClient(state: ClientState): SnClient {
     }
   };
 
+  // Load → verify editor → apply a pure mutation → persist through the same
+  // encrypt/sync/conflict path as updateNote. NOTE: on a sync_conflict the
+  // shared submitNoteUpdate re-pushes this serialized checklist as-is — it does
+  // not re-apply the mutation against the server's newer copy. Concurrent edits
+  // from the SN app are therefore last-write-wins at the whole-note level.
+  const mutateChecklist = async <T>(
+    uuid: string,
+    mutate: (checklist: AdvancedChecklist) => {
+      checklist: AdvancedChecklist;
+      result: T;
+    },
+  ): Promise<T> => {
+    await ensureFresh(state, 0, () => fullSync(state));
+
+    const existing = state.notesCache.get(uuid);
+    if (!existing) throw new Error(`Note ${uuid} not found`);
+
+    if (existing.editor !== "advanced-checklist") {
+      throw new Error(`Note ${uuid} is not an Advanced Checklist`);
+    }
+
+    const { checklist, result } = mutate(parseChecklist(existing.text));
+    const text = serializeChecklist(checklist);
+
+    const saved = await submitNoteUpdate(
+      uuid,
+      {
+        uuid: existing.uuid,
+        title: existing.title,
+        text,
+        trashed: existing.trashed,
+        noteType: "task",
+        editor: "advanced-checklist",
+      },
+      0,
+    );
+
+    state.notesCache.set(uuid, {
+      ...existing,
+      text,
+      noteType: "task",
+      editor: "advanced-checklist",
+      createdAt: saved.created_at ?? existing.createdAt,
+      updatedAt: saved.updated_at ?? existing.updatedAt,
+      created_at_timestamp:
+        saved.created_at_timestamp ?? existing.created_at_timestamp,
+      updated_at_timestamp:
+        saved.updated_at_timestamp ?? existing.updated_at_timestamp,
+    });
+
+    return result;
+  };
+
+  const checklistGroupIndex = (
+    checklist: AdvancedChecklist,
+    groupName: string,
+  ): number => {
+    const index = checklist.groups.findIndex(
+      (group) => group.name === groupName,
+    );
+
+    if (index < 0) {
+      throw new Error(`Checklist group "${groupName}" not found`);
+    }
+
+    return index;
+  };
+
   return {
     async listNotes({ limit, offset, includeTrashed, tag, includeDescendants }) {
       await ensureFresh(state, cacheTtlMs(), () => fullSync(state));
@@ -996,6 +1119,101 @@ function buildClient(state: ClientState): SnClient {
       if (tags !== undefined) {
         await syncTagsToNote(uuid, tags);
       }
+    },
+
+    async addChecklistGroup({ uuid, name }) {
+      await mutateChecklist(uuid, (checklist) => ({
+        checklist: addGroup(checklist, name),
+        result: undefined,
+      }));
+    },
+
+    async renameChecklistGroup({ uuid, groupName, newName }) {
+      await mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: renameGroup(checklist, groupIndex, newName),
+          result: undefined,
+        };
+      });
+    },
+
+    async deleteChecklistGroup({ uuid, groupName }) {
+      await mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: deleteGroup(checklist, groupIndex),
+          result: undefined,
+        };
+      });
+    },
+
+    async addChecklistTask({ uuid, groupName, description }) {
+      const taskId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+
+      return mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: addTask(
+            checklist,
+            groupIndex,
+            description,
+            taskId,
+            createdAt,
+          ),
+          result: taskId,
+        };
+      });
+    },
+
+    async updateChecklistTask({
+      uuid,
+      groupName,
+      taskId,
+      description,
+    }) {
+      await mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: updateTask(checklist, groupIndex, taskId, {
+            description,
+            updatedAt: new Date().toISOString(),
+          }),
+          result: undefined,
+        };
+      });
+    },
+
+    async toggleChecklistTask({
+      uuid,
+      groupName,
+      taskId,
+      completed,
+    }) {
+      await mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: toggleTask(
+            checklist,
+            groupIndex,
+            taskId,
+            completed,
+            new Date().toISOString(),
+          ),
+          result: undefined,
+        };
+      });
+    },
+
+    async deleteChecklistTask({ uuid, groupName, taskId }) {
+      await mutateChecklist(uuid, (checklist) => {
+        const groupIndex = checklistGroupIndex(checklist, groupName);
+        return {
+          checklist: deleteTask(checklist, groupIndex, taskId),
+          result: undefined,
+        };
+      });
     },
 
     async deleteNote(uuid, permanent) {

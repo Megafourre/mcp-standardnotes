@@ -15,6 +15,17 @@ import {
   updateInput,
 } from "./tools/notes.js";
 import {
+  checklistAddGroupInput,
+  checklistAddTaskInput,
+  checklistCreateInput,
+  checklistDeleteGroupInput,
+  checklistDeleteTaskInput,
+  checklistRenameGroupInput,
+  checklistSetTaskCompletedInput,
+  checklistUpdateTaskInput,
+  registerChecklistHandlers,
+} from "./tools/checklist.js";
+import {
   registerTagHandlers,
   syncInput,
   tagsAttachInput,
@@ -40,6 +51,7 @@ export async function startServer(): Promise<void> {
   const client = await createClientFromSession({ serverUrl, email });
   const h = registerNoteHandlers(client);
   const t = registerTagHandlers(client);
+  const cl = registerChecklistHandlers(client);
 
   const server = new McpServer({
     name: "mcp-standardnotes",
@@ -102,6 +114,54 @@ export async function startServer(): Promise<void> {
     "Trash a note (permanent=true purges irreversibly).",
     deleteInput.shape,
     wrap(h.notes_delete),
+  );
+  server.tool(
+    "notes_checklist_create",
+    "Create a new Advanced Checklist note (com.sncommunity.advanced-checklist), opens in the Advanced Checklist editor. Starts empty; add groups then tasks.",
+    checklistCreateInput.shape,
+    wrap(cl.notes_checklist_create),
+  );
+  server.tool(
+    "notes_checklist_add_group",
+    "Add a task group to an Advanced Checklist note. Group names are unique within the checklist.",
+    checklistAddGroupInput.shape,
+    wrap(cl.notes_checklist_add_group),
+  );
+  server.tool(
+    "notes_checklist_rename_group",
+    "Rename a task group (addressed by its current name).",
+    checklistRenameGroupInput.shape,
+    wrap(cl.notes_checklist_rename_group),
+  );
+  server.tool(
+    "notes_checklist_delete_group",
+    "Delete a task group and all its tasks.",
+    checklistDeleteGroupInput.shape,
+    wrap(cl.notes_checklist_delete_group),
+  );
+  server.tool(
+    "notes_checklist_add_task",
+    "Add a task to a group. Inserted at the front of the group (plugin behavior). Returns the generated taskId.",
+    checklistAddTaskInput.shape,
+    wrap(cl.notes_checklist_add_task),
+  );
+  server.tool(
+    "notes_checklist_update_task",
+    "Change a task's description (addressed by taskId within its group).",
+    checklistUpdateTaskInput.shape,
+    wrap(cl.notes_checklist_update_task),
+  );
+  server.tool(
+    "notes_checklist_set_task_completed",
+    "Mark a task complete or incomplete. Completing it records completedAt and moves it to the top of the group.",
+    checklistSetTaskCompletedInput.shape,
+    wrap(cl.notes_checklist_set_task_completed),
+  );
+  server.tool(
+    "notes_checklist_delete_task",
+    "Delete a single task from a group.",
+    checklistDeleteTaskInput.shape,
+    wrap(cl.notes_checklist_delete_task),
   );
   server.tool(
     "tags_list",

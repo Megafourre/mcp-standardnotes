@@ -17,12 +17,12 @@ export interface ChecklistGroup {
   tasks: ChecklistTask[];
 }
 
+// The plugin's runtime state also carries `initialized` / `legacyContent` /
+// `lastError`, but those are UI-only — it never persists them to the note. We
+// model just the two keys that live on disk.
 export interface AdvancedChecklist {
   schemaVersion: string;
   groups: ChecklistGroup[];
-  initialized?: boolean;
-  legacyContent?: ChecklistGroup;
-  lastError?: string;
 }
 
 export function createChecklist(): AdvancedChecklist {
@@ -32,36 +32,53 @@ export function createChecklist(): AdvancedChecklist {
   };
 }
 
+// Mirrors the Advanced Checklist plugin's `tasksLoaded` reducer: an empty body
+// is a fresh empty checklist, and `schemaVersion` / `groups` both fall back to
+// defaults rather than being required. Only genuinely un-parseable JSON or a
+// wrong-typed field is rejected. We also drop any extra top-level keys
+// (`initialized`, `lastError`, `legacyContent`) — the plugin only ever persists
+// `{ schemaVersion, groups }`.
 export function parseChecklist(text: string): AdvancedChecklist {
-  let parsed: unknown;
+  const raw = text.trim() === "" ? "{}" : text;
 
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(raw);
   } catch {
     throw new Error("Invalid Advanced Checklist JSON");
   }
 
-  if (!isAdvancedChecklist(parsed)) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Invalid Advanced Checklist structure");
   }
 
-  return parsed;
-}
+  const candidate = parsed as Record<string, unknown>;
 
-export function serializeChecklist(checklist: AdvancedChecklist): string {
-  return JSON.stringify(checklist);
-}
-
-function isAdvancedChecklist(value: unknown): value is AdvancedChecklist {
-  if (!value || typeof value !== "object") {
-    return false;
+  if (
+    candidate.schemaVersion !== undefined &&
+    typeof candidate.schemaVersion !== "string"
+  ) {
+    throw new Error("Invalid Advanced Checklist structure");
+  }
+  if (candidate.groups !== undefined && !Array.isArray(candidate.groups)) {
+    throw new Error("Invalid Advanced Checklist structure");
   }
 
-  const candidate = value as Record<string, unknown>;
+  return {
+    schemaVersion:
+      (candidate.schemaVersion as string | undefined) ??
+      ADVANCED_CHECKLIST_SCHEMA_VERSION,
+    groups: (candidate.groups as ChecklistGroup[] | undefined) ?? [],
+  };
+}
 
-  return (
-    typeof candidate.schemaVersion === "string" &&
-    Array.isArray(candidate.groups)
+// Byte-for-byte the same shape the plugin writes back to `content.text`:
+// pretty-printed with a 2-space indent, and only the two persisted keys.
+export function serializeChecklist(checklist: AdvancedChecklist): string {
+  return JSON.stringify(
+    { schemaVersion: checklist.schemaVersion, groups: checklist.groups },
+    null,
+    2,
   );
 }
 
@@ -69,6 +86,13 @@ export function addGroup(
   checklist: AdvancedChecklist,
   name: string,
 ): AdvancedChecklist {
+  // The plugin keys groups by name (`tasksGroupAdded` is a no-op when the name
+  // already exists), and our whole API addresses groups by name — a duplicate
+  // would be permanently unreachable.
+  if (checklist.groups.some((group) => group.name === name)) {
+    throw new Error(`Checklist group "${name}" already exists`);
+  }
+
   return {
     ...checklist,
     groups: [
@@ -90,6 +114,13 @@ export function renameGroup(
 
   if (!group) {
     throw new Error(`Checklist group ${groupIndex} not found`);
+  }
+
+  if (
+    name !== group.name &&
+    checklist.groups.some((item) => item.name === name)
+  ) {
+    throw new Error(`Checklist group "${name}" already exists`);
   }
 
   return {
@@ -136,11 +167,12 @@ export function addTask(
 
   return {
     ...checklist,
-    groups: checklist.groups.map((item, index) =>
-      index === groupIndex
-        ? { ...item, tasks: [task, ...item.tasks] }
-        : item,
-    ),
+    groups: checklist.groups.map((item, index) => {
+      if (index !== groupIndex) return item;
+      // The plugin's `taskAdded` clears the group's unsaved "new task" draft.
+      const { draft: _draft, ...rest } = item;
+      return { ...rest, tasks: [task, ...item.tasks] };
+    }),
   };
 }
 
@@ -225,24 +257,25 @@ export function toggleTask(
 
   return {
     ...checklist,
-    groups: checklist.groups.map((item, index) =>
-      index === groupIndex
-        ? {
-            ...item,
-            tasks: item.tasks.map((task) =>
-              task.id === taskId
-                ? {
-                    ...task,
-                    completed,
-                    updatedAt,
-                    ...(completed
-                      ? { completedAt: updatedAt }
-                      : { completedAt: undefined }),
-                  }
-                : task,
-            ),
-          }
-        : item,
-    ),
+    groups: checklist.groups.map((item, index) => {
+      if (index !== groupIndex) return item;
+
+      const current = item.tasks.find((task) => task.id === taskId)!;
+      const toggled: ChecklistTask = {
+        ...current,
+        completed,
+        updatedAt,
+        ...(completed
+          ? { completedAt: updatedAt }
+          : { completedAt: undefined }),
+      };
+
+      // The plugin's `taskToggled` moves the just-toggled task to the top of
+      // the group.
+      return {
+        ...item,
+        tasks: [toggled, ...item.tasks.filter((task) => task.id !== taskId)],
+      };
+    }),
   };
 }

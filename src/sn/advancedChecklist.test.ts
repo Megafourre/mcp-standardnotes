@@ -45,12 +45,22 @@ describe("advanced checklist", () => {
     expect(checklist.groups[0]?.tasks[0]?.description).toBe("Milk");
   });
 
-  it("serializes a checklist", () => {
+  it("serializes a checklist the way the plugin does (2-space indent, two keys)", () => {
     const checklist = createChecklist();
 
     expect(serializeChecklist(checklist)).toBe(
-      '{"schemaVersion":"1.0.0","groups":[]}',
+      '{\n  "schemaVersion": "1.0.0",\n  "groups": []\n}',
     );
+  });
+
+  it("drops non-persisted keys on serialize", () => {
+    const checklist = {
+      ...createChecklist(),
+      initialized: true,
+      lastError: "boom",
+    } as ReturnType<typeof createChecklist>;
+
+    expect(serializeChecklist(checklist)).not.toContain("lastError");
   });
 
   it("rejects invalid JSON", () => {
@@ -59,10 +69,40 @@ describe("advanced checklist", () => {
     );
   });
 
-  it("rejects invalid checklist structure", () => {
-    expect(() => parseChecklist(JSON.stringify({ groups: [] }))).toThrow(
+  it("treats an empty body as a fresh empty checklist (like the plugin)", () => {
+    expect(parseChecklist("")).toEqual({
+      schemaVersion: ADVANCED_CHECKLIST_SCHEMA_VERSION,
+      groups: [],
+    });
+    expect(parseChecklist("  ")).toEqual({
+      schemaVersion: ADVANCED_CHECKLIST_SCHEMA_VERSION,
+      groups: [],
+    });
+    expect(parseChecklist("{}")).toEqual({
+      schemaVersion: ADVANCED_CHECKLIST_SCHEMA_VERSION,
+      groups: [],
+    });
+  });
+
+  it("defaults a missing schemaVersion and drops extra keys", () => {
+    expect(
+      parseChecklist(JSON.stringify({ groups: [], initialized: true })),
+    ).toEqual({
+      schemaVersion: ADVANCED_CHECKLIST_SCHEMA_VERSION,
+      groups: [],
+    });
+  });
+
+  it("rejects wrong-typed fields and non-object bodies", () => {
+    expect(() => parseChecklist("[]")).toThrow(
       "Invalid Advanced Checklist structure",
     );
+    expect(() =>
+      parseChecklist(JSON.stringify({ schemaVersion: 1, groups: [] })),
+    ).toThrow("Invalid Advanced Checklist structure");
+    expect(() =>
+      parseChecklist(JSON.stringify({ groups: "nope" })),
+    ).toThrow("Invalid Advanced Checklist structure");
   });
 
   it("adds a group", () => {
@@ -76,11 +116,28 @@ describe("advanced checklist", () => {
     ]);
   });
 
+  it("rejects a duplicate group name", () => {
+    const checklist = addGroup(createChecklist(), "Shopping");
+
+    expect(() => addGroup(checklist, "Shopping")).toThrow(
+      'Checklist group "Shopping" already exists',
+    );
+  });
+
   it("renames a group", () => {
     const checklist = addGroup(createChecklist(), "Shopping");
     const renamed = renameGroup(checklist, 0, "Groceries");
 
     expect(renamed.groups[0]?.name).toBe("Groceries");
+  });
+
+  it("rejects renaming a group onto an existing name", () => {
+    let checklist = addGroup(createChecklist(), "Shopping");
+    checklist = addGroup(checklist, "Work");
+
+    expect(() => renameGroup(checklist, 0, "Work")).toThrow(
+      'Checklist group "Work" already exists',
+    );
   });
 
   it("deletes a group", () => {
@@ -210,6 +267,28 @@ describe("advanced checklist", () => {
       updatedAt: "2026-09-08T12:00:00.000Z",
     });
     expect(result.groups[0]?.tasks[0]?.completedAt).toBeUndefined();
+  });
+
+  it("moves a toggled task to the top of its group (plugin behavior)", () => {
+    let checklist = addGroup(createChecklist(), "Shopping");
+    checklist = addTask(checklist, 0, "Third", "t3", "2026-09-08T10:00:03.000Z");
+    checklist = addTask(checklist, 0, "Second", "t2", "2026-09-08T10:00:02.000Z");
+    checklist = addTask(checklist, 0, "First", "t1", "2026-09-08T10:00:01.000Z");
+    // order is now [t1, t2, t3]
+
+    const result = toggleTask(
+      checklist,
+      0,
+      "t3",
+      true,
+      "2026-09-08T11:00:00.000Z",
+    );
+
+    expect(result.groups[0]?.tasks.map((t) => t.id)).toEqual([
+      "t3",
+      "t1",
+      "t2",
+    ]);
   });
 
   it("does not mutate the original checklist", () => {

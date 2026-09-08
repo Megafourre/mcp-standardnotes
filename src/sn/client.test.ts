@@ -38,6 +38,7 @@ import {
   encryptString,
   generateItemsKeyRaw,
 } from "./protocol004.js";
+import type { AdvancedChecklist } from "./advancedChecklist.js";
 import { serializeChecklist } from "./advancedChecklist.js";
 
 describe("createClientFromSession bootstrap", () => {
@@ -197,10 +198,7 @@ describe("SnClient Advanced Checklist methods", () => {
 
   // Builds a real (decryptable) vault snapshot: one wrapped items_key, one
   // Advanced Checklist note carrying `initialChecklist`, and one plain note.
-  async function bootClient(initialChecklist: {
-    schemaVersion: string;
-    groups: { name: string; tasks: unknown[] }[];
-  }) {
+  async function bootClient(initialChecklist: AdvancedChecklist) {
     await sodiumReady();
     const masterKey = await randomBytes(32);
     const wrappingKey = await generateItemsKeyRaw();
@@ -313,9 +311,9 @@ describe("SnClient Advanced Checklist methods", () => {
     return { client, pushed };
   }
 
-  const oneGroup = () => ({
+  const oneGroup = (): AdvancedChecklist => ({
     schemaVersion: "1.0.0",
-    groups: [{ name: "Shopping", tasks: [] as unknown[] }],
+    groups: [{ name: "Shopping", tasks: [] }],
   });
 
   it("addChecklistGroup persists a new group and pushes an encrypted note", async () => {

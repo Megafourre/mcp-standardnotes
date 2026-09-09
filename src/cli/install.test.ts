@@ -14,7 +14,12 @@ vi.mock("keytar", () => ({
   },
 }));
 
-import { buildEntry, installDesktop } from "./install.js";
+import {
+  accountEntryName,
+  buildEntry,
+  installDesktop,
+  installDesktopAccounts,
+} from "./install.js";
 
 const fakePaths = {
   node: "/abs/path/to/node",
@@ -28,6 +33,101 @@ describe("install — buildEntry", () => {
       args: ["/abs/path/to/dist/index.js"],
       env: { SN_EMAIL: "a@b.co" },
     });
+  });
+});
+
+describe("install — accountEntryName", () => {
+  it("keeps the historical name for a single account", () => {
+    expect(accountEntryName("a@b.co")).toBe("mcp-standardnotes");
+    expect(accountEntryName("a@b.co", ["a@b.co"])).toBe("mcp-standardnotes");
+  });
+
+  it("suffixes with the local part when several accounts", () => {
+    const emails = ["me@perso.fr", "family@shared.com"];
+    expect(accountEntryName("me@perso.fr", emails)).toBe(
+      "mcp-standardnotes-me",
+    );
+    expect(accountEntryName("family@shared.com", emails)).toBe(
+      "mcp-standardnotes-family",
+    );
+  });
+
+  it("disambiguates with the domain when local parts collide", () => {
+    const emails = ["me@perso.fr", "me@work.com"];
+    expect(accountEntryName("me@perso.fr", emails)).toBe(
+      "mcp-standardnotes-me-perso",
+    );
+    expect(accountEntryName("me@work.com", emails)).toBe(
+      "mcp-standardnotes-me-work",
+    );
+  });
+});
+
+describe("install — installDesktopAccounts (against a tmpdir)", () => {
+  let dir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "mcp-sn-install-multi-"));
+    configPath = join(dir, "claude_desktop_config.json");
+  });
+
+  it("writes one named entry per account", async () => {
+    const { names } = await installDesktopAccounts({
+      emails: ["me@perso.fr", "family@shared.com"],
+      paths: fakePaths,
+      configPath,
+    });
+    expect(names).toEqual([
+      "mcp-standardnotes-me",
+      "mcp-standardnotes-family",
+    ]);
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(written.mcpServers["mcp-standardnotes-me"].env.SN_EMAIL).toBe(
+      "me@perso.fr",
+    );
+    expect(written.mcpServers["mcp-standardnotes-family"].env.SN_EMAIL).toBe(
+      "family@shared.com",
+    );
+  });
+
+  it("drops a stale single-account entry that points at this server", async () => {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          "mcp-standardnotes": buildEntry(fakePaths, "me@perso.fr"),
+        },
+      }),
+    );
+    await installDesktopAccounts({
+      emails: ["me@perso.fr", "family@shared.com"],
+      paths: fakePaths,
+      configPath,
+    });
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(Object.keys(written.mcpServers).sort()).toEqual([
+      "mcp-standardnotes-family",
+      "mcp-standardnotes-me",
+    ]);
+  });
+
+  it("keeps an unrelated single-account entry (different server path)", async () => {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          "mcp-standardnotes": { command: "x", args: ["/other/server.js"] },
+        },
+      }),
+    );
+    await installDesktopAccounts({
+      emails: ["me@perso.fr", "family@shared.com"],
+      paths: fakePaths,
+      configPath,
+    });
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(written.mcpServers["mcp-standardnotes"]).toBeDefined();
   });
 });
 

@@ -80,7 +80,8 @@ This writes the right entry (absolute Node + binary paths, your email from the k
 **Claude Code** — let the `claude` CLI do it:
 
 ```bash
-mcp-standardnotes-install code   # prints the exact `claude mcp add` command
+mcp-standardnotes-install code       # prints the exact `claude mcp add` command
+#   from a clone:  npm run install-client -- code
 ```
 
 Or add to `~/.claude.json` / `.mcp.json` manually:
@@ -111,12 +112,14 @@ can use both in the same turn.
 
 ```bash
 # 1. Log in each account (one interactive run handles all of them):
-npm run login          # prompts for the first email + password,
-                       # then "Log in another account? [y/N]"
+mcp-standardnotes-login       # prompts for the first email + password,
+                              # then "Log in another account? [y/N]"
+#   from a clone:  npm run login
 
 # 2. Wire every stored account into the client in one shot:
 mcp-standardnotes-install --all          # Claude Desktop
 mcp-standardnotes-install code --all     # prints the `claude mcp add` commands
+#   from a clone:  npm run install-client -- [code] --all
 ```
 
 Or by hand, in `~/.claude.json` / a project `.mcp.json`:

@@ -28,6 +28,8 @@ npm run dev            # Watch mode (tsx)
 npm run typecheck      # Type-check without emitting
 npm test               # Run tests (vitest)
 npm run lint           # ESLint
+npm run login          # interactive login (loops over accounts) → keychain
+npm run install-client -- [code] [--all]   # wire account(s) into Claude Desktop/Code from a clone
 ```
 
 ## Structure

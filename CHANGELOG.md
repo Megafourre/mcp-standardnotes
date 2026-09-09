@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Multiple-account setup ergonomics.** `npm run login` (interactive) now loops — after a successful login it lists the accounts already in the keychain and asks whether to add another, so a personal + family setup is a single run. `mcp-standardnotes-install --all` writes one MCP-server entry per stored keychain account (`mcp-standardnotes-<local-part>`, disambiguated with the domain if two accounts share a local part); `mcp-standardnotes-install code --all` prints the matching `claude mcp add` commands. Switching to per-account entries drops a stale single-account `mcp-standardnotes` entry that points at this same server. No change to the server or tools — each account is still one stdio process with its own `SN_EMAIL` and keychain session; running two side by side already worked, this just automates the wiring. See the new README "Multiple accounts" section.
+- **`npm run install-client`** — runs the client-wiring CLI (`mcp-standardnotes-install`) from a clone without a global install; builds first, then forwards args (`npm run install-client -- code --all`).
+- **docs/troubleshooting.md**: new section on the `Object does not exist at path "/…"` login failure on headless/SSH Linux — a locked gnome-keyring `login` collection — with a one-liner unlock, a `~/.bash_profile` auto-unlock snippet, and a fully-unattended `systemd --user` variant.
 
 ## [0.6.0] — 2026-08-06
 

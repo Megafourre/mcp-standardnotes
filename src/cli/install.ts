@@ -75,6 +75,18 @@ async function backupOnce(path: string): Promise<string | null> {
   return backup;
 }
 
+async function allAccounts(): Promise<string[]> {
+  const envEmail = process.env.SN_EMAIL;
+  if (envEmail) return envEmail.split(",").map((s) => s.trim()).filter(Boolean);
+  const creds = await keytar.findCredentials(KEYCHAIN_SERVICE);
+  if (creds.length === 0) {
+    throw new Error(
+      "No stored Standard Notes sessions found. Run `mcp-standardnotes-login` first.",
+    );
+  }
+  return creds.map((c) => c.account);
+}
+
 async function pickEmail(): Promise<string> {
   if (process.env.SN_EMAIL) return process.env.SN_EMAIL;
   const creds = await keytar.findCredentials(KEYCHAIN_SERVICE);
@@ -115,59 +127,138 @@ export function buildEntry(
   };
 }
 
-export async function installDesktop(opts: {
-  email: string;
-  paths: ResolvedPaths;
-  configPath?: string;
-}): Promise<{ configPath: string; backup: string | null }> {
-  const configPath = opts.configPath ?? desktopConfigPath();
+const BASE_ENTRY_NAME = "mcp-standardnotes";
+
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * MCP-server name for one account's entry.
+ *
+ * With a single account we keep the historical `mcp-standardnotes` name so
+ * existing configs are updated in place. With several accounts each gets a
+ * `mcp-standardnotes-<local-part>` suffix (`…-<local>-<domain>` if two accounts
+ * share a local part), so Claude sees one distinct tool namespace per vault.
+ */
+export function accountEntryName(email: string, allEmails?: string[]): string {
+  const others = allEmails ?? [email];
+  if (others.length <= 1) return BASE_ENTRY_NAME;
+  const local = slug(email.split("@")[0] ?? email);
+  const sameLocal =
+    others.filter((e) => slug(e.split("@")[0] ?? e) === local).length > 1;
+  if (!sameLocal) return `${BASE_ENTRY_NAME}-${local}`;
+  const domain = slug((email.split("@")[1] ?? "").split(".")[0] ?? "");
+  return `${BASE_ENTRY_NAME}-${local}-${domain}`;
+}
+
+function looksLikeOurEntry(entry: unknown, server: string): boolean {
+  const e = entry as { args?: unknown } | null;
+  return Array.isArray(e?.args) && e.args.includes(server);
+}
+
+async function mergeEntries(
+  configPath: string,
+  entries: Record<string, InstallEntry>,
+  paths: ResolvedPaths,
+): Promise<{ configPath: string; backup: string | null }> {
   await mkdir(dirname(configPath), { recursive: true });
   const backup = await backupOnce(configPath);
   const config = await readJsonOrEmpty(configPath);
   const servers =
     (config.mcpServers as Record<string, unknown> | undefined) ?? {};
-  servers["mcp-standardnotes"] = buildEntry(opts.paths, opts.email);
+  const names = new Set(Object.keys(entries));
+  // When switching to per-account names, drop a stale single-account
+  // `mcp-standardnotes` entry that points at this same server so it doesn't
+  // linger as a duplicate of one of the new entries.
+  if (
+    !names.has(BASE_ENTRY_NAME) &&
+    looksLikeOurEntry(servers[BASE_ENTRY_NAME], paths.server)
+  ) {
+    delete servers[BASE_ENTRY_NAME];
+  }
+  for (const [name, entry] of Object.entries(entries)) servers[name] = entry;
   config.mcpServers = servers;
-  await writeFile(
-    configPath,
-    JSON.stringify(config, null, 2) + "\n",
-    "utf8",
-  );
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
   return { configPath, backup };
+}
+
+export async function installDesktop(opts: {
+  email: string;
+  paths: ResolvedPaths;
+  configPath?: string;
+}): Promise<{ configPath: string; backup: string | null }> {
+  return installDesktopAccounts({
+    emails: [opts.email],
+    paths: opts.paths,
+    configPath: opts.configPath,
+  });
+}
+
+export async function installDesktopAccounts(opts: {
+  emails: string[];
+  paths: ResolvedPaths;
+  configPath?: string;
+}): Promise<{ configPath: string; backup: string | null; names: string[] }> {
+  if (opts.emails.length === 0) throw new Error("no accounts to install");
+  const configPath = opts.configPath ?? desktopConfigPath();
+  const entries: Record<string, InstallEntry> = {};
+  for (const email of opts.emails) {
+    entries[accountEntryName(email, opts.emails)] = buildEntry(
+      opts.paths,
+      email,
+    );
+  }
+  const res = await mergeEntries(configPath, entries, opts.paths);
+  return { ...res, names: Object.keys(entries) };
 }
 
 async function printCodeInstructions(
   paths: ResolvedPaths,
-  email: string,
+  emails: string[],
 ): Promise<void> {
+  const many = emails.length > 1;
   process.stdout.write(
-    "For Claude Code, run this command (it shells out to the `claude` CLI):\n\n",
+    `For Claude Code, run ${many ? "these commands" : "this command"} ` +
+      "(it shells out to the `claude` CLI):\n\n",
   );
+  for (const email of emails) {
+    const name = accountEntryName(email, emails);
+    process.stdout.write(
+      `  claude mcp add ${name} "${paths.node}" "${paths.server}" --env SN_EMAIL=${email}\n`,
+    );
+  }
   process.stdout.write(
-    `  claude mcp add mcp-standardnotes "${paths.node}" "${paths.server}" --env SN_EMAIL=${email}\n\n`,
-  );
-  process.stdout.write(
-    "If you don't have the `claude` CLI installed, add the same JSON entry manually to ~/.claude.json under `mcpServers`.\n",
+    "\nIf you don't have the `claude` CLI installed, add the same " +
+      `${many ? "entries" : "entry"} manually to ~/.claude.json (or a project ` +
+      "`.mcp.json`) under `mcpServers`.\n",
   );
 }
 
-function parseTargets(argv: string[]): Target[] {
+function parseArgs(argv: string[]): { targets: Target[]; all: boolean } {
   const targets: Target[] = [];
+  let all = false;
   for (const a of argv) {
-    if (a === "desktop" || a === "code") {
+    if (a === "--all" || a === "-a") {
+      all = true;
+    } else if (a === "desktop" || a === "code") {
       if (!targets.includes(a)) targets.push(a);
     } else {
       throw new Error(
-        `Unknown argument: "${a}". Usage: mcp-standardnotes-install [desktop] [code]`,
+        `Unknown argument: "${a}". ` +
+          "Usage: mcp-standardnotes-install [desktop] [code] [--all]",
       );
     }
   }
   if (targets.length === 0) targets.push("desktop");
-  return targets;
+  return { targets, all };
 }
 
 async function main(): Promise<void> {
-  const targets = parseTargets(process.argv.slice(2));
+  const { targets, all } = parseArgs(process.argv.slice(2));
   const paths = resolvePaths();
   if (!existsSync(paths.server)) {
     throw new Error(
@@ -175,14 +266,22 @@ async function main(): Promise<void> {
         `Reinstall the package: \`npm install -g mcp-standardnotes\`.`,
     );
   }
-  const email = await pickEmail();
+  const emails = all ? await allAccounts() : [await pickEmail()];
 
   for (const t of targets) {
     if (t === "desktop") {
       try {
-        const { configPath, backup } = await installDesktop({ email, paths });
+        const { configPath, backup, names } = await installDesktopAccounts({
+          emails,
+          paths,
+        });
         process.stdout.write(
           `Updated Claude Desktop config at ${configPath}\n`,
+        );
+        process.stdout.write(
+          `  ${names
+            .map((n, i) => `${n}  →  ${emails[i]}`)
+            .join("\n  ")}\n`,
         );
         if (backup) {
           process.stdout.write(`(previous config backed up to ${backup})\n`);
@@ -197,7 +296,7 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       }
     } else if (t === "code") {
-      await printCodeInstructions(paths, email);
+      await printCodeInstructions(paths, emails);
     }
   }
 }

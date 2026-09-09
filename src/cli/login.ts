@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 import { logger } from "../security/logger.js";
+import keytar from "keytar";
 import { createClientFromLogin } from "../sn/client.js";
-import { installDesktop, resolvePaths } from "./install.js";
+import { installDesktopAccounts, resolvePaths } from "./install.js";
+
+const KEYCHAIN_SERVICE = process.env.KEYCHAIN_SERVICE ?? "mcp-standardnotes";
 
 const CTRL_C = "";
 const DEL = "";
@@ -69,16 +72,9 @@ function prompt(question: string, silent = false): Promise<string> {
   return silent ? promptSilent(question) : promptVisible(question);
 }
 
-async function main(): Promise<void> {
-  const serverUrl =
-    process.env.SN_SERVER_URL ?? "https://api.standardnotes.com";
-  const envEmail = process.env.SN_EMAIL;
-  const email = envEmail ?? (await prompt("Email: "));
-  if (!email) throw new Error("email is required");
-
+async function loginOne(serverUrl: string, email: string): Promise<void> {
   let password = await prompt("Password: ", true);
   if (!password) throw new Error("password is required");
-
   try {
     await createClientFromLogin(
       { serverUrl, email },
@@ -87,41 +83,9 @@ async function main(): Promise<void> {
     );
     password = "";
     logger.info("Login OK, session stored in keychain", { email, serverUrl });
-    process.stdout.write("Login successful. Session saved in OS keychain.\n");
-
-    if (process.platform === "darwin" || process.platform === "win32") {
-      const ans = (
-        await prompt("Wire this server into Claude Desktop now? [Y/n]: ")
-      ).toLowerCase();
-      if (ans === "" || ans === "y" || ans === "yes") {
-        try {
-          const { configPath, backup } = await installDesktop({
-            email,
-            paths: resolvePaths(),
-          });
-          process.stdout.write(
-            `Claude Desktop config updated at ${configPath}\n`,
-          );
-          if (backup) {
-            process.stdout.write(`Previous config backed up to ${backup}\n`);
-          }
-          process.stdout.write(
-            "Quit Claude Desktop fully and relaunch to pick up the change.\n",
-          );
-        } catch (err) {
-          process.stdout.write(
-            `Desktop install skipped: ${err instanceof Error ? err.message : String(err)}\n`,
-          );
-          process.stdout.write(
-            "You can retry later with `mcp-standardnotes-install`.\n",
-          );
-        }
-      } else {
-        process.stdout.write(
-          "Skipped. Run `mcp-standardnotes-install` when you're ready.\n",
-        );
-      }
-    }
+    process.stdout.write(
+      `Login successful for ${email}. Session saved in OS keychain.\n`,
+    );
   } catch (err) {
     password = "";
     const causes: string[] = [];
@@ -136,6 +100,99 @@ async function main(): Promise<void> {
     });
     process.exit(1);
   }
+}
+
+async function storedAccounts(): Promise<string[]> {
+  try {
+    const creds = await keytar.findCredentials(KEYCHAIN_SERVICE);
+    return creds.map((c) => c.account).sort();
+  } catch {
+    return [];
+  }
+}
+
+async function offerInstall(emails: string[]): Promise<void> {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    process.stdout.write(
+      "\nHook it up with `mcp-standardnotes-install --all` " +
+        "(Claude Desktop) or `mcp-standardnotes-install code --all` " +
+        "(prints the `claude mcp add` commands for Claude Code).\n",
+    );
+    return;
+  }
+  const ans = (
+    await prompt("Wire these account(s) into Claude Desktop now? [Y/n]: ")
+  ).toLowerCase();
+  if (ans !== "" && ans !== "y" && ans !== "yes") {
+    process.stdout.write(
+      "Skipped. Run `mcp-standardnotes-install --all` when you're ready.\n",
+    );
+    return;
+  }
+  try {
+    const { configPath, backup, names } = await installDesktopAccounts({
+      emails,
+      paths: resolvePaths(),
+    });
+    process.stdout.write(`Claude Desktop config updated at ${configPath}\n`);
+    process.stdout.write(
+      `  ${names.map((n, i) => `${n}  →  ${emails[i]}`).join("\n  ")}\n`,
+    );
+    if (backup) {
+      process.stdout.write(`Previous config backed up to ${backup}\n`);
+    }
+    process.stdout.write(
+      "Quit Claude Desktop fully and relaunch to pick up the change.\n",
+    );
+  } catch (err) {
+    process.stdout.write(
+      `Desktop install skipped: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.stdout.write(
+      "You can retry later with `mcp-standardnotes-install --all`.\n",
+    );
+  }
+}
+
+async function main(): Promise<void> {
+  const serverUrl =
+    process.env.SN_SERVER_URL ?? "https://api.standardnotes.com";
+  const envEmail = process.env.SN_EMAIL;
+
+  // Non-interactive: SN_EMAIL pins a single account, no loop, no install prompt.
+  if (envEmail) {
+    await loginOne(serverUrl, envEmail);
+    return;
+  }
+
+  const loggedIn: string[] = [];
+  for (;;) {
+    const known = await storedAccounts();
+    if (known.length > 0 && loggedIn.length === 0) {
+      process.stdout.write(
+        `Accounts already in the keychain: ${known.join(", ")}\n`,
+      );
+    }
+    const email = await prompt("Email: ");
+    if (!email) throw new Error("email is required");
+    await loginOne(serverUrl, email);
+    if (!loggedIn.includes(email)) loggedIn.push(email);
+
+    const again = (
+      await prompt("Log in another account? [y/N]: ")
+    ).toLowerCase();
+    if (again !== "y" && again !== "yes") break;
+  }
+
+  const known = await storedAccounts();
+  process.stdout.write(
+    `\nStored sessions: ${known.join(", ") || loggedIn.join(", ")}\n`,
+  );
+  // Wire in every account we just authenticated (so a second `login` run that
+  // adds one account doesn't silently drop the first from the config, pass the
+  // union with what's already stored).
+  const toInstall = known.length > 0 ? known : loggedIn;
+  await offerInstall(toInstall);
 }
 
 main();

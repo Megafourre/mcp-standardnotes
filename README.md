@@ -65,7 +65,7 @@ mcp-standardnotes-login         # if installed globally
 npm run login
 ```
 
-You'll be prompted for email and password. The password derives your master key in memory (Argon2id) and is never written to disk. An encrypted session is stored in your OS keychain; subsequent runs reuse it automatically. At the end of `login`, you're offered to wire the server into Claude Desktop in one step — accept it, restart Desktop, done.
+You'll be prompted for email and password. The password derives your master key in memory (Argon2id) and is never written to disk. An encrypted session is stored in your OS keychain; subsequent runs reuse it automatically. `login` then asks whether you want to add another account (for a personal + family setup — see [Multiple accounts](#multiple-accounts-eg-personal--family)) and offers to wire everything into Claude Desktop in one step — accept it, restart Desktop, done.
 
 ### 3. Hook it up to Claude
 
@@ -80,7 +80,8 @@ This writes the right entry (absolute Node + binary paths, your email from the k
 **Claude Code** — let the `claude` CLI do it:
 
 ```bash
-mcp-standardnotes-install code   # prints the exact `claude mcp add` command
+mcp-standardnotes-install code       # prints the exact `claude mcp add` command
+#   from a clone:  npm run install-client -- code
 ```
 
 Or add to `~/.claude.json` / `.mcp.json` manually:
@@ -101,6 +102,40 @@ Then `/mcp` to reconnect.
 
 **Any other MCP client** — run `node dist/index.js` with `SN_EMAIL` set in the environment. Transport is stdio.
 
+### Multiple accounts (e.g. personal + family)
+
+Run one server instance per account. Each is a separate stdio process with its
+own keychain session and no shared state, so there is nothing to configure
+beyond a distinct name and `SN_EMAIL` per entry. Claude sees one tool namespace
+per vault (`mcp__sn-perso__notes_search`, `mcp__sn-family__notes_search`, …) and
+can use both in the same turn.
+
+```bash
+# 1. Log in each account (one interactive run handles all of them):
+mcp-standardnotes-login       # prompts for the first email + password,
+                              # then "Log in another account? [y/N]"
+#   from a clone:  npm run login
+
+# 2. Wire every stored account into the client in one shot:
+mcp-standardnotes-install --all          # Claude Desktop
+mcp-standardnotes-install code --all     # prints the `claude mcp add` commands
+#   from a clone:  npm run install-client -- [code] --all
+```
+
+Or by hand, in `~/.claude.json` / a project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "sn-perso":  { "command": "mcp-standardnotes", "env": { "SN_EMAIL": "you@example.com" } },
+    "sn-family": { "command": "mcp-standardnotes", "env": { "SN_EMAIL": "family@example.com" } }
+  }
+}
+```
+
+The account is fixed by the server entry, so it is always explicit in the tool
+name — a write can never land in the wrong vault.
+
 **Self-hosting Standard Notes?** See [docs/self-hosted.md](./docs/self-hosted.md) for the docker-compose recipe and how to pin your TLS certificate.
 
 **Want a remote agent (Hermes on a VPS, self-hosted LangGraph, etc.) to use your vault?** See [docs/remote-agent-bridge.md](./docs/remote-agent-bridge.md) for the full Cloudflare Tunnel + MCP Portals setup. Your master key stays on your Mac; the agent talks to a public HTTPS endpoint gated by a Cloudflare service token, and Portals handles automatic MCP tool discovery, multi-server bundling, and Access application generation.
@@ -109,7 +144,7 @@ Then `/mcp` to reconnect.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SN_EMAIL` | *required* | Your SN account email. Must match what you used with `npm run login`. |
+| `SN_EMAIL` | *required* | Your SN account email. Must match what you used with `npm run login`. One account per server instance — see [Multiple accounts](#multiple-accounts-eg-personal--family). |
 | `SN_SERVER_URL` | `https://api.standardnotes.com` | Sync server URL. Change for self-hosted instances. |
 | `KEYCHAIN_SERVICE` | `mcp-standardnotes` | Override the keychain service name (useful for multiple accounts). |
 | `SN_CERT_FINGERPRINT` | *unset* | SHA-256 TLS cert pin for self-hosted servers (64 hex chars, colons optional). See [docs/self-hosted.md](./docs/self-hosted.md). |

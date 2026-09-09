@@ -28,6 +28,8 @@ npm run dev            # Watch mode (tsx)
 npm run typecheck      # Type-check without emitting
 npm test               # Run tests (vitest)
 npm run lint           # ESLint
+npm run login          # interactive login (loops over accounts) → keychain
+npm run install-client -- [code] [--all]   # wire account(s) into Claude Desktop/Code from a clone
 ```
 
 ## Structure
@@ -93,6 +95,16 @@ Via environment variables (see `.env.example`):
 - `SN_CERT_FINGERPRINT` — (optional) SHA-256 TLS cert pinning
 
 First boot triggers an interactive login (stdin prompt outside MCP, via `npm run login`) that stores the session in the OS keychain. Subsequent runs reuse the session.
+
+### Multiple accounts
+
+One `SN_EMAIL` per server process — there is no in-process multi-account
+support and none is wanted. To run several accounts (personal + family), start
+one server instance per account under a distinct MCP name; each has its own
+keychain session (keyed by email in `session.ts`) and no shared state. The
+interactive `npm run login` loops over accounts; `mcp-standardnotes-install
+--all` writes one `mcp-standardnotes-<local-part>` entry per stored account
+(`src/cli/install.ts` — `accountEntryName`, `installDesktopAccounts`).
 
 ## Gotchas
 

@@ -76,8 +76,9 @@ busctl --user call org.freedesktop.secrets \
 Also look for leaked daemons from an earlier session and kill them:
 
 ```bash
-pgrep -au "$USER" gnome-keyring-daemon
-pkill -u "$USER" -x gnome-keyring-daemon
+pgrep -af gnome-keyring-daemon
+pkill -u "$USER" -f gnome-keyring-daemon   # -f, not -x: the process name is
+                                          # truncated to "gnome-keyring-d"
 ```
 
 **Unlock it for the session** (the keyring password is whatever it was created
@@ -85,9 +86,13 @@ with — often your account password). The daemon is shared across every session
 on the user bus, so this is once per boot, not once per shell:
 
 ```bash
+pkill -u "$USER" -f gnome-keyring-daemon; sleep 1
 eval "$(printf %s 'KEYRING_PASSWORD' | gnome-keyring-daemon \
-  --start --daemonize --components=secrets,pkcs11 --unlock)"
+  --replace --start --daemonize --components=secrets,pkcs11 --unlock)"
 ```
+
+If no `login` keyring exists yet (`~/.local/share/keyrings/login.keyring`
+missing), this **creates** it with the password you give.
 
 **Do it automatically.** Drop this into `~/.bash_profile` (source `~/.profile`
 from it too, if you don't already have one — bash skips `~/.profile` once
@@ -99,10 +104,10 @@ if [[ $- == *i* ]] && command -v gnome-keyring-daemon >/dev/null 2>&1; then
     /org/freedesktop/secrets/collection/login org.freedesktop.DBus.Properties \
     Get ss org.freedesktop.Secret.Collection Locked 2>/dev/null | grep -q 'b false'; }
   if ! _kr; then
-    pkill -u "$USER" -x gnome-keyring-daemon 2>/dev/null
+    pkill -u "$USER" -f gnome-keyring-daemon 2>/dev/null; sleep 1
     read -rs -p "Unlock GNOME keyring — password: " _kpw; echo
-    eval "$(printf %s "$_kpw" | gnome-keyring-daemon --start --daemonize \
-      --components=secrets,pkcs11 --unlock 2>/dev/null)"; unset _kpw
+    eval "$(printf %s "$_kpw" | gnome-keyring-daemon --replace --start \
+      --daemonize --components=secrets,pkcs11 --unlock 2>/dev/null)"; unset _kpw
     _kr && echo "  keyring unlocked." >&2 || echo "  still locked." >&2
   fi
   unset -f _kr

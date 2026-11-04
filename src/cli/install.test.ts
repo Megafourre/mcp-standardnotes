@@ -19,12 +19,21 @@ import {
   buildEntry,
   installDesktop,
   installDesktopAccounts,
+  resolvePaths,
 } from "./install.js";
 
 const fakePaths = {
   node: "/abs/path/to/node",
   server: "/abs/path/to/dist/index.js",
 };
+
+describe("install — resolvePaths", () => {
+  it("points at dist/index.js even when run from src/ (tsx, `npm run login`)", () => {
+    const { server } = resolvePaths();
+    expect(server).toMatch(/[\\/]dist[\\/]index\.js$/);
+    expect(server).not.toMatch(/[\\/]src[\\/]index\.js$/);
+  });
+});
 
 describe("install — buildEntry", () => {
   it("uses absolute node + server paths and sets SN_EMAIL", () => {

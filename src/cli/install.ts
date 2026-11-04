@@ -27,8 +27,11 @@ export interface ResolvedPaths {
 /** Returns absolute paths for node + the server entrypoint. */
 export function resolvePaths(): ResolvedPaths {
   const here = dirname(fileURLToPath(import.meta.url));
-  // install.js lives in dist/cli/, server entry is dist/index.js
-  const server = resolve(here, "..", "index.js");
+  // Anchor on the package root, not on this file's folder: `npm run login`
+  // runs src/cli/login.ts through tsx, and a `..` hop from src/cli/ would
+  // point Desktop at a src/index.js that doesn't exist.
+  const root = resolve(here, "..", "..");
+  const server = join(root, "dist", "index.js");
   return { node: process.execPath, server };
 }
 

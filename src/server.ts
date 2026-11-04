@@ -106,7 +106,7 @@ export async function startServer(): Promise<void> {
   server.tool(
     "notes_update",
     "Update an existing note by UUID.",
-    updateInput._def.schema.shape,
+    updateInput.shape,
     wrap(h.notes_update),
   );
   server.tool(
@@ -184,7 +184,7 @@ export async function startServer(): Promise<void> {
   server.tool(
     "tags_update",
     "Rename a tag and/or move it in the folder hierarchy. `parent`: tag UUID to re-parent, null to detach, omit to leave unchanged.",
-    tagsUpdateInput._def.schema.shape,
+    tagsUpdateInput.shape,
     wrap(t.tags_update),
   );
   server.tool(

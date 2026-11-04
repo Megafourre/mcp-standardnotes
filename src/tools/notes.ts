@@ -25,6 +25,14 @@ export const listInput = z.object({
     .describe(
       "When `tag` is set, also include notes filed under any descendant tag (SN folder behavior). Off by default.",
     ),
+  pinned: z
+    .boolean()
+    .optional()
+    .describe("true = only pinned notes, false = only unpinned. Omit for no filter."),
+  starred: z
+    .boolean()
+    .optional()
+    .describe("true = only starred notes, false = only unstarred. Omit for no filter."),
 });
 
 export const statsInput = z.object({});
@@ -38,6 +46,11 @@ export const getInput = z.object({ uuid: uuidSchema });
 
 const tagsArraySchema = z.array(uuidSchema).max(64);
 
+const pinnedSchema = z
+  .boolean()
+  .describe("SN \"Pin to top\" flag");
+const starredSchema = z.boolean().describe("SN \"Star\" flag");
+
 export const createInput = z.object({
   title: z.string().max(500),
   text: z
@@ -49,6 +62,8 @@ export const createInput = z.object({
   noteType: noteTypeSchema.optional(),
   editor: noteEditorSchema.optional(),
   tags: tagsArraySchema.optional(),
+  pinned: pinnedSchema.optional(),
+  starred: starredSchema.optional(),
 });
 
 export const createManyInput = z.object({
@@ -63,6 +78,8 @@ export const updateInput = z
     noteType: noteTypeSchema.optional(),
     editor: noteEditorSchema.optional(),
     tags: tagsArraySchema.optional(),
+    pinned: pinnedSchema.optional(),
+    starred: starredSchema.optional(),
   })
   .refine(
     (v) =>
@@ -70,9 +87,12 @@ export const updateInput = z
       v.text !== undefined ||
       v.noteType !== undefined ||
       v.editor !== undefined ||
-      v.tags !== undefined,
+      v.tags !== undefined ||
+      v.pinned !== undefined ||
+      v.starred !== undefined,
     {
-      message: "provide at least one of title, text, noteType, editor, or tags",
+      message:
+        "provide at least one of title, text, noteType, editor, tags, pinned, or starred",
     },
   );
 

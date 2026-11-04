@@ -12,6 +12,8 @@ function summary(over: Partial<NoteSummary> = {}): NoteSummary {
     trashed: false,
     protected: false,
     locked: false,
+    pinned: false,
+    starred: false,
     noteType: "plain-text",
     ...over,
   };
@@ -27,6 +29,8 @@ function fullNote(over: Partial<Note> = {}): Note {
     trashed: false,
     protected: false,
     locked: false,
+    pinned: false,
+    starred: false,
     tags: [],
     noteType: "plain-text",
     ...over,
@@ -208,6 +212,55 @@ describe("tool input validation", () => {
       uuid: "11111111-1111-4111-8111-111111111111",
       editor: "advanced-checklist",
     });
+  });
+
+  it("notes_update accepts pinned / starred as the only change", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_update({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      pinned: true,
+    });
+    await h.notes_update({
+      uuid: "11111111-1111-4111-8111-111111111111",
+      starred: false,
+    });
+    expect(c.updateNote).toHaveBeenNthCalledWith(1, {
+      uuid: "11111111-1111-4111-8111-111111111111",
+      pinned: true,
+    });
+    expect(c.updateNote).toHaveBeenNthCalledWith(2, {
+      uuid: "11111111-1111-4111-8111-111111111111",
+      starred: false,
+    });
+  });
+
+  it("notes_update rejects a non-boolean pinned", async () => {
+    const h = registerNoteHandlers(fakeClient());
+    await expect(
+      h.notes_update({
+        uuid: "11111111-1111-4111-8111-111111111111",
+        pinned: "yes",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("notes_list forwards pinned / starred filters", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_list({ pinned: true, starred: false });
+    expect(c.listNotes).toHaveBeenCalledWith(
+      expect.objectContaining({ pinned: true, starred: false }),
+    );
+  });
+
+  it("notes_create forwards pinned / starred", async () => {
+    const c = fakeClient();
+    const h = registerNoteHandlers(c);
+    await h.notes_create({ title: "t", text: "b", pinned: true, starred: true });
+    expect(c.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({ pinned: true, starred: true }),
+    );
   });
 
   it("notes_create rejects malformed tag uuid", async () => {

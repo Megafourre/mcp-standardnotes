@@ -186,6 +186,68 @@ describe("protocol004 primitives", () => {
     expect(dec.text).toBe("very sensitive");
   });
 
+  it("round-trips pinned / starred and reads them where the SN app writes them", async () => {
+    await sodiumReady();
+    const itemsKeyBytes = await generateItemsKeyRaw();
+    const itemsKeyUuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const noteUuid = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const keyMap = new Map<string, Uint8Array>([[itemsKeyUuid, itemsKeyBytes]]);
+    const asRaw = (content: string, enc_item_key: string) => ({
+      uuid: noteUuid,
+      content_type: "Note",
+      content,
+      enc_item_key,
+      items_key_id: itemsKeyUuid,
+      created_at: "",
+      updated_at: "",
+    });
+
+    const encrypted = await encryptNote(
+      { uuid: noteUuid, title: "t", text: "b", pinned: true, starred: true },
+      { uuid: itemsKeyUuid, itemsKey: itemsKeyBytes },
+    );
+    const dec = await decryptNote(
+      asRaw(encrypted.content, encrypted.enc_item_key),
+      keyMap,
+    );
+    expect(dec.pinned).toBe(true);
+    expect(dec.starred).toBe(true);
+
+    // Wire contract: SN keeps `pinned` in the "org.standardnotes.sn" appData
+    // domain and `starred` at the top level of the content.
+    const perItemKey = await generateItemsKeyRaw();
+    const aad = { u: noteUuid, v: "004" };
+    const forged = await decryptNote(
+      asRaw(
+        await encryptString(
+          JSON.stringify({
+            title: "t",
+            text: "b",
+            starred: true,
+            appData: { "org.standardnotes.sn": { pinned: true } },
+          }),
+          perItemKey,
+          aad,
+        ),
+        await encryptString(await toHex(perItemKey), itemsKeyBytes, aad),
+      ),
+      keyMap,
+    );
+    expect(forged.pinned).toBe(true);
+    expect(forged.starred).toBe(true);
+
+    const plain = await encryptNote(
+      { uuid: noteUuid, title: "t", text: "b" },
+      { uuid: itemsKeyUuid, itemsKey: itemsKeyBytes },
+    );
+    const decPlain = await decryptNote(
+      asRaw(plain.content, plain.enc_item_key),
+      keyMap,
+    );
+    expect(decPlain.pinned).toBe(false);
+    expect(decPlain.starred).toBe(false);
+  });
+
   it("round-trips an items_key (wrapping key + content.itemsKey)", async () => {
     await sodiumReady();
     const masterKey = await randomBytes(32);

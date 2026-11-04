@@ -58,6 +58,9 @@ export interface SnClient {
     // (SN sidebar "folder" behavior). Off by default so existing callers
     // keep the strict direct-tag semantics.
     includeDescendants?: boolean;
+    // Restrict to notes whose SN pin / star flag matches. Omitted = no filter.
+    pinned?: boolean;
+    starred?: boolean;
   }): Promise<NoteSummary[]>;
   stats(): Promise<VaultStats>;
   searchNotes(query: string, limit: number): Promise<NoteSummary[]>;
@@ -68,6 +71,8 @@ export interface SnClient {
     noteType?: NoteType;
     editor?: NoteEditor;
     tags?: string[];
+    pinned?: boolean;
+    starred?: boolean;
   }): Promise<string>;
   createNotesBatch(
     inputs: Array<{
@@ -76,6 +81,8 @@ export interface SnClient {
       noteType?: NoteType;
       editor?: NoteEditor;
       tags?: string[];
+      pinned?: boolean;
+      starred?: boolean;
     }>,
   ): Promise<Array<{ uuid: string; title: string }>>;
   updateNote(input: {
@@ -85,6 +92,8 @@ export interface SnClient {
     noteType?: NoteType;
     editor?: NoteEditor;
     tags?: string[];
+    pinned?: boolean;
+    starred?: boolean;
   }): Promise<void>;
 
   addChecklistGroup(input: {
@@ -485,6 +494,8 @@ function toSummary(n: DecryptedNote): NoteSummary {
     trashed: n.trashed,
     protected: n.protected,
     locked: n.locked,
+    pinned: n.pinned,
+    starred: n.starred,
     noteType: n.noteType,
     editor: n.editor,
   };
@@ -516,6 +527,8 @@ function toFullNote(
     trashed: n.trashed,
     protected: n.protected,
     locked: n.locked,
+    pinned: n.pinned,
+    starred: n.starred,
     tags: tagsForNote(n.uuid, tagsCache),
     noteType: n.noteType,
     editor: n.editor,
@@ -574,6 +587,8 @@ function buildClient(state: ClientState): SnClient {
       title: string;
       text: string;
       trashed: boolean;
+      pinned: boolean;
+      starred: boolean;
       noteType: NoteType;
       editor?: NoteEditor;
     },
@@ -766,6 +781,8 @@ function buildClient(state: ClientState): SnClient {
         title: existing.title,
         text,
         trashed: existing.trashed,
+        pinned: existing.pinned,
+        starred: existing.starred,
         noteType: "task",
         editor: "advanced-checklist",
       },
@@ -804,7 +821,15 @@ function buildClient(state: ClientState): SnClient {
   };
 
   return {
-    async listNotes({ limit, offset, includeTrashed, tag, includeDescendants }) {
+    async listNotes({
+      limit,
+      offset,
+      includeTrashed,
+      tag,
+      includeDescendants,
+      pinned,
+      starred,
+    }) {
       await ensureFresh(state, cacheTtlMs(), () => fullSync(state));
       let allowedNoteUuids: Set<string> | null = null;
       if (tag !== undefined && tag !== "") {
@@ -835,6 +860,8 @@ function buildClient(state: ClientState): SnClient {
       const all = [...state.notesCache.values()]
         .filter((n) => includeTrashed || !n.trashed)
         .filter((n) => !allowedNoteUuids || allowedNoteUuids.has(n.uuid))
+        .filter((n) => pinned === undefined || n.pinned === pinned)
+        .filter((n) => starred === undefined || n.starred === starred)
         .sort((a, b) => b.updated_at_timestamp - a.updated_at_timestamp);
       return all.slice(offset, offset + limit).map(toSummary);
     },
@@ -912,7 +939,7 @@ function buildClient(state: ClientState): SnClient {
       return n ? toFullNote(n, state.tagsCache) : null;
     },
 
-    async createNote({ title, text, noteType, editor, tags }) {
+    async createNote({ title, text, noteType, editor, tags, pinned, starred }) {
       const uuid = crypto.randomUUID();
       const resolvedType: NoteType =
         noteType ?? (editor === "advanced-checklist" ? "task" : "markdown");
@@ -924,6 +951,8 @@ function buildClient(state: ClientState): SnClient {
           title,
           text: resolvedText,
           trashed: false,
+          pinned: pinned === true,
+          starred: starred === true,
           noteType: resolvedType,
           editor,
         },
@@ -961,6 +990,8 @@ function buildClient(state: ClientState): SnClient {
         trashed: false,
         protected: false,
         locked: false,
+        pinned: pinned === true,
+        starred: starred === true,
         noteType: resolvedType,
         editor,
         createdAt: saved.created_at ?? nowIso,
@@ -986,6 +1017,8 @@ function buildClient(state: ClientState): SnClient {
         noteType: NoteType;
         editor?: NoteEditor;
         tags: string[];
+        pinned: boolean;
+        starred: boolean;
       };
       const prepared: Prepared[] = inputs.map((input) => {
         const resolvedType: NoteType =
@@ -1002,6 +1035,8 @@ function buildClient(state: ClientState): SnClient {
           noteType: resolvedType,
           editor: input.editor,
           tags: input.tags ?? [],
+          pinned: input.pinned === true,
+          starred: input.starred === true,
         };
       });
       const items = await Promise.all(
@@ -1012,6 +1047,8 @@ function buildClient(state: ClientState): SnClient {
               title: p.title,
               text: p.text,
               trashed: false,
+              pinned: p.pinned,
+              starred: p.starred,
               noteType: p.noteType,
               editor: p.editor,
             },
@@ -1050,6 +1087,8 @@ function buildClient(state: ClientState): SnClient {
           trashed: false,
           protected: false,
           locked: false,
+          pinned: p.pinned,
+          starred: p.starred,
           noteType: p.noteType,
           editor: p.editor,
           createdAt: saved.created_at ?? nowIso,
@@ -1071,7 +1110,16 @@ function buildClient(state: ClientState): SnClient {
       return prepared.map((p) => ({ uuid: p.uuid, title: p.title }));
     },
 
-    async updateNote({ uuid, title, text, noteType, editor, tags }) {
+    async updateNote({
+      uuid,
+      title,
+      text,
+      noteType,
+      editor,
+      tags,
+      pinned,
+      starred,
+    }) {
       // Sync inconditionnel avant mutation : sinon on peut écraser une
       // révision plus récente produite par une autre instance du serveur
       // (cf. intakes/mcp-standardnotes-cache-staleness.md).
@@ -1084,7 +1132,9 @@ function buildClient(state: ClientState): SnClient {
         title !== undefined ||
         text !== undefined ||
         noteType !== undefined ||
-        editor !== undefined;
+        editor !== undefined ||
+        pinned !== undefined ||
+        starred !== undefined;
       if (contentChanged) {
         const nextType: NoteType =
           noteType ??
@@ -1101,6 +1151,8 @@ function buildClient(state: ClientState): SnClient {
           title: title ?? existing.title,
           text: nextText,
           trashed: existing.trashed,
+          pinned: pinned ?? existing.pinned,
+          starred: starred ?? existing.starred,
           noteType: nextType,
           editor: nextEditor,
         };
@@ -1243,6 +1295,8 @@ function buildClient(state: ClientState): SnClient {
             title: merged.title,
             text: merged.text,
             trashed: true,
+            pinned: merged.pinned,
+            starred: merged.starred,
             noteType: merged.noteType,
             editor: merged.editor,
           },

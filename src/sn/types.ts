@@ -31,6 +31,10 @@ export interface NoteSummary {
   // Standard Notes' edit-lock (`appData["org.standardnotes.sn"].locked`).
   // Content stays readable — the user just said "don't modify".
   locked: boolean;
+  // SN "Pin to top" (`appData["org.standardnotes.sn"].pinned`) and "Star"
+  // (top-level `content.starred`) organisation flags.
+  pinned: boolean;
+  starred: boolean;
   noteType: NoteType;
   editor?: NoteEditor;
 }
@@ -44,6 +48,8 @@ export interface Note {
   trashed: boolean;
   protected: boolean;
   locked: boolean;
+  pinned: boolean;
+  starred: boolean;
   tags: string[];
   noteType: NoteType;
   editor?: NoteEditor;

@@ -15,6 +15,8 @@ function fullNote(over: Partial<Note> = {}): Note {
     trashed: false,
     protected: false,
     locked: false,
+    pinned: false,
+    starred: false,
     tags: [],
     noteType: "task",
     editor: "advanced-checklist",

@@ -33,7 +33,7 @@ Ask Claude to summarize your notes, draft new ones, organize tags, search across
 | `tags_attach` / `tags_detach` | Link/unlink tags to notes |
 | `sync` | Force a sync with the server |
 
-`notes_create` and `notes_update` accept an optional `tags: string[]` (tag UUIDs) to link tags at write time.
+`notes_create` and `notes_update` accept an optional `tags: string[]` (tag UUIDs) to link tags at write time, and optional `pinned` / `starred` booleans to pin/unpin or star/unstar a note (the same flags as the SN app's "Pin to top" and "Star"). `notes_list` can filter on `pinned` / `starred`, and every note summary reports both flags.
 
 ## Requirements
 

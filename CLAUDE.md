@@ -62,8 +62,8 @@ src/
 | `notes_list` | List notes (title + uuid, truncated content) |
 | `notes_search` | Full-text search on decrypted title+content |
 | `notes_get` | Fetch a note by uuid |
-| `notes_create` | Create a note (title, text, tags?) |
-| `notes_update` | Update an existing note |
+| `notes_create` | Create a note (title, text, tags?, pinned?, starred?) |
+| `notes_update` | Update an existing note (incl. `pinned` / `starred` toggles) |
 | `notes_delete` | Delete (trash by default, purge if `permanent=true`) |
 | `tags_list` / `tags_get` / `tags_create` / `tags_update` / `tags_delete` | Tag CRUD |
 | `tags_attach` / `tags_detach` | Link/unlink a tag to a note |
@@ -111,6 +111,7 @@ interactive `npm run login` loops over accounts; `mcp-standardnotes-install
 - **Sync is async-heavy**: always `await client.sync()` after a CRUD operation before considering it complete.
 - **Sync conflicts**: the server can produce conflicts; `notes_update` forces a full sync before writing. On a `sync_conflict` `submitNoteUpdate` refreshes the raw item and re-pushes **the same payload once** — it does not re-merge, so a losing concurrent edit is overwritten (last-write-wins at the note level). The checklist tools inherit this: granular task ops are *not* CRDT-merged against a concurrent edit from the SN app.
 - **Advanced Checklist format**: `src/sn/advancedChecklist.ts` mirrors the plugin (`github.com/standardnotes/advanced-checklist`, `tasks-slice.ts`). Note body is `JSON.stringify({ schemaVersion, groups }, null, 2)`; an empty body counts as an empty checklist; group names are unique; new tasks and just-toggled tasks go to the front of their group.
+- **Pinned / starred**: `pinned` lives in `appData["org.standardnotes.sn"].pinned`, `starred` is a top-level content field (mirrors `DecryptedItem.ts` in standardnotes/app). `encryptNote` rebuilds the content from scratch, so every write path must pass the existing flags back in or the note silently loses them.
 - **Legacy protocol 003**: refuse accounts not migrated to 004 with a clear error — no workaround.
 - **Rate limiting**: the SN server rate-limits auth (~5/min). Don't retry in a loop on 429.
 - **MCP stdio**: any `console.log` breaks the protocol. Use `console.error` for logs, or a logger that only writes to stderr.

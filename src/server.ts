@@ -69,7 +69,7 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "notes_list",
-    "List notes (decrypted locally). Returns uuid/title/updatedAt/preview. Optional `tag` filters by tag UUID or title; set `includeDescendants: true` to also include notes filed under any child/grandchild tag (SN folder behavior).",
+    "List notes (decrypted locally). Returns uuid/title/updatedAt/preview/pinned/starred. Optional `tag` filters by tag UUID or title; set `includeDescendants: true` to also include notes filed under any child/grandchild tag (SN folder behavior). Optional `pinned` / `starred` filter on those flags.",
     listInput.shape,
     wrap(h.notes_list),
   );
@@ -93,7 +93,7 @@ export async function startServer(): Promise<void> {
   );
   server.tool(
     "notes_create",
-    "Create a new note.",
+    "Create a new note. Optional `pinned` / `starred` set the SN pin and star flags.",
     createInput.shape,
     wrap(h.notes_create),
   );
@@ -105,7 +105,7 @@ export async function startServer(): Promise<void> {
   );
   server.tool(
     "notes_update",
-    "Update an existing note by UUID.",
+    "Update an existing note by UUID. Pass `pinned` / `starred` (true/false) to pin/unpin or star/unstar; omitted fields are left unchanged.",
     updateInput._def.schema.shape,
     wrap(h.notes_update),
   );

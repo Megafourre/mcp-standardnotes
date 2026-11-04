@@ -455,6 +455,42 @@ describe("SnClient Advanced Checklist methods", () => {
     ]);
   });
 
+  it("updateNote pins/stars a note, and later edits keep the flags", async () => {
+    const { client, pushed } = await bootClient(oneGroup());
+
+    await client.updateNote({ uuid: checklistUuid, pinned: true, starred: true });
+    expect(pushed).toHaveLength(1);
+    let note = await client.getNote(checklistUuid);
+    expect(note!.pinned).toBe(true);
+    expect(note!.starred).toBe(true);
+
+    // A checklist mutation re-encrypts the whole note — it must not drop
+    // the pin/star the user set.
+    await client.addChecklistGroup({ uuid: checklistUuid, name: "Work" });
+    note = await client.getNote(checklistUuid);
+    expect(note!.pinned).toBe(true);
+    expect(note!.starred).toBe(true);
+
+    await client.updateNote({ uuid: checklistUuid, starred: false });
+    note = await client.getNote(checklistUuid);
+    expect(note!.pinned).toBe(true);
+    expect(note!.starred).toBe(false);
+  });
+
+  it("listNotes filters on pinned / starred", async () => {
+    const { client } = await bootClient(oneGroup());
+    await client.updateNote({ uuid: checklistUuid, pinned: true });
+
+    const base = { limit: 50, offset: 0, includeTrashed: false };
+    const uuids = async (f: { pinned?: boolean; starred?: boolean }) =>
+      (await client.listNotes({ ...base, ...f })).map((n) => n.uuid);
+
+    expect(await uuids({ pinned: true })).toEqual([checklistUuid]);
+    expect(await uuids({ pinned: false })).toEqual([plainUuid]);
+    expect(await uuids({ starred: true })).toEqual([]);
+    expect((await uuids({})).sort()).toEqual([checklistUuid, plainUuid].sort());
+  });
+
   it("rejects an unknown note, a non-checklist note and an unknown group", async () => {
     const { client } = await bootClient(oneGroup());
 

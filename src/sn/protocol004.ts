@@ -271,6 +271,11 @@ export interface DecryptedNote {
   // Edit-lock under appData["org.standardnotes.sn"].locked — read-only flag,
   // content stays readable, only writes are forbidden.
   locked: boolean;
+  // Organisation flags. SN keeps `pinned` under
+  // appData["org.standardnotes.sn"].pinned and `starred` as a top-level
+  // content field (see standardnotes/app packages/models .../DecryptedItem.ts).
+  pinned: boolean;
+  starred: boolean;
   noteType: NoteType;
   editor?: NoteEditor;
   updated_at_timestamp: number;
@@ -305,6 +310,7 @@ export async function decryptNote(
     text?: string;
     trashed?: boolean;
     protected?: boolean;
+    starred?: boolean;
     appData?: Record<string, Record<string, unknown> | undefined>;
     noteType?: string;
     editorIdentifier?: string;
@@ -313,10 +319,11 @@ export async function decryptNote(
   // Anything else (legacy keys, future extension points) we deliberately
   // ignore here — the field is exposed only as a boolean to the tool layer.
   const snAppData = content.appData?.["org.standardnotes.sn"];
-  const locked =
+  const snFlag = (field: "locked" | "pinned"): boolean =>
     typeof snAppData === "object" &&
     snAppData !== null &&
-    (snAppData as { locked?: unknown }).locked === true;
+    (snAppData as Record<string, unknown>)[field] === true;
+  const locked = snFlag("locked");
   const editor: NoteEditor | undefined =
     content.editorIdentifier === "com.sncommunity.advanced-checklist"
       ? "advanced-checklist"
@@ -328,6 +335,8 @@ export async function decryptNote(
     trashed: content.trashed === true,
     protected: content.protected === true,
     locked,
+    pinned: snFlag("pinned"),
+    starred: content.starred === true,
     noteType: (content.noteType as NoteType | undefined) ?? "plain-text",
     editor,
     createdAt: item.created_at ?? "",
@@ -349,6 +358,8 @@ export async function encryptNote(
     title: string;
     text: string;
     trashed?: boolean;
+    pinned?: boolean;
+    starred?: boolean;
     noteType?: NoteType;
     editor?: NoteEditor;
   },
@@ -382,12 +393,14 @@ export async function encryptNote(
     appData: {
       [SN_APP_DOMAIN]: {
         client_updated_at: new Date().toISOString(),
+        ...(note.pinned ? { pinned: true } : {}),
       },
     },
   };
   if (editorIdentifier) contentObj.editorIdentifier = editorIdentifier;
   if (previewPlain !== undefined) contentObj.preview_plain = previewPlain;
   if (note.trashed) contentObj.trashed = true;
+  if (note.starred) contentObj.starred = true;
   const contentJson = JSON.stringify(contentObj);
 
   const content = await encryptString(contentJson, perItemKey, aad);
